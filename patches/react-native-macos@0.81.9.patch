@@ -1,3 +1,22 @@
+diff --git a/Libraries/Text/TextInput/Singleline/macOS/RCTUISecureTextField.mm b/Libraries/Text/TextInput/Singleline/macOS/RCTUISecureTextField.mm
+index 6f332dc..0d43d53 100644
+--- a/Libraries/Text/TextInput/Singleline/macOS/RCTUISecureTextField.mm
++++ b/Libraries/Text/TextInput/Singleline/macOS/RCTUISecureTextField.mm
+@@ -78,6 +78,14 @@ + (Class)cellClass
+   return RCTUISecureTextFieldCell.class;
+ }
+ 
++// AppKit's secure field editor throws when its delegate isn't an NSSecureTextField ("NSSecureTextFieldCell is not
++// secure…"), for apps built with a recent SDK. This field is an NSTextField with a secure cell, so it says it is one;
++// under Chromium the exception was fatal, and focusing any password field crashed the app.
++- (BOOL)isKindOfClass:(Class)aClass
++{
++  return aClass == NSSecureTextField.class || [super isKindOfClass:aClass];
++}
++
+ @end
+ 
+ #endif // TARGET_OS_OSX
 diff --git a/React/Base/macOS/RCTUIKit.m b/React/Base/macOS/RCTUIKit.m
 index a37a1c106a04752c1baeb6dd2170402ce5f34f71..c096a10720e76e449619a026d4b756ec1bb6907b 100644
 --- a/React/Base/macOS/RCTUIKit.m

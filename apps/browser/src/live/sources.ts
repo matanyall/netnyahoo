@@ -1,7 +1,7 @@
 import { CONFLUENCE_CQL, DRIVE_QUERY, mapBitbucket, mapConfluence, mapDrive, mapNotion, NOTION_SEARCH_BODY, type BitbucketPR, type BitbucketStatuses, type ConfluenceSearch, type DriveFiles, type NotionSearch, type NotionUsers } from "./documents";
-import { DETAILS_PAGE, detailIds, GITHUB_DETAILS_QUERY, GITHUB_QUERY, GITHUB_STATE_QUERY, GITHUB_VARIABLES, mapGithub, VIEWER_QUERY, withDetails, type GithubResponse, type RawPR } from "./github";
+import { DETAILS_PAGE, detailIds, GITHUB_DETAILS_QUERY, GITHUB_QUERY, GITHUB_STATE_QUERY, githubVariables, mapGithub, seenOwners, VIEWER_QUERY, withDetails, type GithubResponse, type RawPR } from "./github";
 import { basic, deleteSecret, endpoints, form, getSecret, request, setSecret } from "./net";
-import { live, setAccount, updateConfig } from "./store";
+import { addAccountOwners, live, setAccount, updateConfig } from "./store";
 import { LiveError, type CompletionState, type LiveAccount, type LiveFolder, type LiveItem, type LiveSourceId } from "./types";
 
 export type LiveSource = {
@@ -39,7 +39,8 @@ const github: LiveSource = {
   site: "https://github.com",
   async fetch(folder) {
     const token = await secret("github");
-    const json = await githubGraphql<GithubResponse>(token, GITHUB_QUERY, GITHUB_VARIABLES);
+    const json = await githubGraphql<GithubResponse>(token, GITHUB_QUERY, githubVariables(folder.filters.owners));
+    addAccountOwners("github", seenOwners(json));
     const ids = detailIds(json, folder.filters);
     const pages = Array.from({ length: Math.ceil(ids.length / DETAILS_PAGE) }, (_, i) => ids.slice(i * DETAILS_PAGE, (i + 1) * DETAILS_PAGE));
     const page = async (ids: string[]) => {

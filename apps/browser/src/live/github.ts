@@ -22,9 +22,9 @@ const PR_FIELDS = `
 // and ~130 review requests: one 50-PR search with these fields took 7-10 s alone. The searches ask only for ids, and
 // the details come in pages of DETAILS_PAGE (~2.5 s each), fetched in parallel (sources.ts).
 export const GITHUB_QUERY = `query LiveFolder($authored: String!, $review: String!, $direct: String!) {
-  viewer { login name avatarUrl(size: 64) }
-  authored: search(query: $authored, type: ISSUE, first: 50) { nodes { ... on PullRequest { id } } }
-  review: search(query: $review, type: ISSUE, first: 50) { nodes { ... on PullRequest { id } } }
+  viewer { login name avatarUrl(size: 64) organizations(first: 100) { nodes { login } } }
+  authored: search(query: $authored, type: ISSUE, first: 50) { nodes { ... on PullRequest { id repository { owner { login } } } } }
+  review: search(query: $review, type: ISSUE, first: 50) { nodes { ... on PullRequest { id repository { owner { login } } } } }
   direct: search(query: $direct, type: ISSUE, first: 50) { nodes { ... on PullRequest { id } } }
 }`;
 
@@ -33,11 +33,26 @@ export const GITHUB_DETAILS_QUERY = `query LiveFolderDetails($ids: [ID!]!) { nod
 
 export const DETAILS_PAGE = 10;
 
-export const GITHUB_VARIABLES = {
-  authored: "is:pr is:open author:@me archived:false sort:updated-desc",
-  review: "is:pr is:open review-requested:@me archived:false sort:updated-desc",
-  direct: "is:pr is:open user-review-requested:@me archived:false",
-};
+const isLogin = (owner: string) => /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(owner);
+
+// A folder's owners narrow each search; several org: qualifiers match any of them (org: takes a user's login too).
+export function githubVariables(owners: string[] = []) {
+  const scope = owners.filter(isLogin).map((owner) => ` org:${owner}`).join("");
+  return {
+    authored: `is:pr is:open author:@me archived:false sort:updated-desc${scope}`,
+    review: `is:pr is:open review-requested:@me archived:false sort:updated-desc${scope}`,
+    direct: `is:pr is:open user-review-requested:@me archived:false${scope}`,
+  };
+}
+
+// The account, its organizations and the owners of the repositories the searches found, for the Organizations menu.
+export function seenOwners(json: GithubResponse): string[] {
+  const data = json.data;
+  if (!data) return [];
+  const repoOwners = [...data.authored.nodes, ...data.review.nodes].map((n) => (n as SearchHit).repository?.owner?.login);
+  const orgs = data.viewer.organizations?.nodes.map((o) => o?.login) ?? [];
+  return [...new Set([data.viewer.login, ...orgs, ...repoOwners].filter((o): o is string => !!o && isLogin(o)))];
+}
 
 export const GITHUB_STATE_QUERY = `query LiveFolderGone($ids: [ID!]!) {
   nodes(ids: $ids) { ... on PullRequest { id state } }
@@ -71,11 +86,13 @@ export type RawPR = {
   commits: { nodes: { commit: { statusCheckRollup: { state: string; contexts: { nodes: RawCheck[] } } | null } }[] };
 };
 
+type SearchHit = { id: string; repository?: { owner?: { login: string } } };
+
 export type GithubResponse = {
   data?: {
-    viewer: { login: string; name: string | null; avatarUrl: string };
-    authored: { nodes: (RawPR | { id: string } | Record<string, never>)[] };
-    review: { nodes: (RawPR | { id: string } | Record<string, never>)[] };
+    viewer: { login: string; name: string | null; avatarUrl: string; organizations?: { nodes: ({ login: string } | null)[] } };
+    authored: { nodes: (RawPR | SearchHit | Record<string, never>)[] };
+    review: { nodes: (RawPR | SearchHit | Record<string, never>)[] };
     direct: { nodes: ({ id: string } | Record<string, never>)[] };
   };
   errors?: { type?: string; message: string }[];
@@ -153,7 +170,7 @@ export function withDetails(json: GithubResponse, details: (RawPR | null)[]): Gi
   const data = json.data;
   if (!data) return json;
   const byId = new Map(details.filter((d): d is RawPR => !!d && isPR(d) && d.state === "OPEN").map((d) => [d.id, d]));
-  const fill = (nodes: (RawPR | { id: string } | Record<string, never>)[]) =>
+  const fill = (nodes: (RawPR | SearchHit | Record<string, never>)[]) =>
     nodes.flatMap((n) => ("id" in n && byId.has(n.id) ? [byId.get(n.id)!] : []));
   return { ...json, data: { ...data, authored: { nodes: fill(data.authored.nodes) }, review: { nodes: fill(data.review.nodes) } } };
 }

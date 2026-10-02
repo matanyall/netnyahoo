@@ -9,7 +9,9 @@ export type LiveFolder = {
   icon: string | null;
   collapsed: boolean;
   sources: LiveSourceId[];
-  filters: { authored: boolean; reviewRequests: boolean };
+  // owners: the GitHub users and organizations whose repositories' PRs the folder shows (none: all of them), so a
+  // work profile's folder can show only work PRs.
+  filters: { authored: boolean; reviewRequests: boolean; owners?: string[] };
   createdAt: number;
 };
 
@@ -77,4 +79,6 @@ export class LiveError extends Error {
   }
 }
 
-export type LiveAccount = { login: string; name: string | null; avatar: string | null; connectedAt: number };
+// owners (GitHub): the account, its organizations and the repository owners its PRs came from, which a folder's
+// Organizations menu offers.
+export type LiveAccount = { login: string; name: string | null; avatar: string | null; connectedAt: number; owners?: string[] };

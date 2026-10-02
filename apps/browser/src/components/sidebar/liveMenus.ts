@@ -36,6 +36,25 @@ const SOURCE_GROUPS: Record<"pullRequests" | "documents", LiveSourceId[]> = {
   documents: ["notion", "confluence", "gdrive"],
 };
 
+// The GitHub accounts and organizations a pull request folder can be narrowed to (filters.owners), yours first.
+function ownersMenu(selected: string[]): MenuItem {
+  const account = live().accounts.github!;
+  const others = [...new Set([...(account.owners ?? []), ...selected])]
+    .filter((o) => o !== account.login)
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  return {
+    id: "owners",
+    title: selected.length ? `Organizations (${selected.length})` : "Organizations",
+    symbol: "building.2",
+    children: [
+      { id: "owners:all", title: "All Organizations", checked: !selected.length },
+      sep,
+      { id: `owner:${account.login}`, title: `${account.login} (You)`, checked: selected.includes(account.login) },
+      ...others.map((o) => ({ id: `owner:${o}`, title: o, checked: selected.includes(o) })),
+    ],
+  };
+}
+
 export async function openLiveFolderMenu(windowId: string, folderId: string) {
   const s = live();
   const folder = s.folders[folderId];
@@ -51,6 +70,7 @@ export async function openLiveFolderMenu(windowId: string, folderId: string) {
       ? [
           { id: "filter:authored", title: "Created by Me", checked: folder.filters.authored },
           { id: "filter:reviewRequests", title: "Awaiting My Review", checked: folder.filters.reviewRequests },
+          ...(folder.sources.includes("github") && s.accounts.github ? [ownersMenu(folder.filters.owners ?? [])] : []),
           sep,
         ]
       : []),
@@ -77,7 +97,13 @@ export async function openLiveFolderMenu(windowId: string, folderId: string) {
   ]);
   if (!choice) return;
   if (choice === "refresh") void refreshFolder(folderId);
-  else if (choice.startsWith("filter:")) {
+  else if (choice === "owners:all" || choice.startsWith("owner:")) {
+    const owner = choice.slice("owner:".length);
+    const current = folder.filters.owners ?? [];
+    const owners = choice === "owners:all" ? [] : current.includes(owner) ? current.filter((o) => o !== owner) : [...current, owner];
+    updateFolder(folderId, { filters: { ...folder.filters, owners: owners.length ? owners : undefined } });
+    void refreshFolder(folderId);
+  } else if (choice.startsWith("filter:")) {
     const key = choice.slice(7) as "authored" | "reviewRequests";
     updateFolder(folderId, { filters: { ...folder.filters, [key]: !folder.filters[key] } });
     void refreshFolder(folderId);

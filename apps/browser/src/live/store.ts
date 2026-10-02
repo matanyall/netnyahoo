@@ -224,6 +224,15 @@ export function markRead(folderId: string, itemIds?: string[]) {
   });
 }
 
+// Remembers owners a source's account has (for GitHub: its organizations and the repositories its PRs are in).
+export function addAccountOwners(source: LiveSourceId, owners: string[]) {
+  setLive((s) => {
+    const account = s.accounts[source];
+    if (!account || owners.every((o) => account.owners?.includes(o))) return {};
+    return { accounts: { ...s.accounts, [source]: { ...account, owners: [...new Set([...(account.owners ?? []), ...owners])] } } };
+  });
+}
+
 export function setAccount(source: LiveSourceId, account: LiveAccount | null) {
   setLive((s) => {
     const accounts = { ...s.accounts };

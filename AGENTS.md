@@ -37,8 +37,8 @@ For the architecture and the test tooling, read `docs/agent-brief.md`.
   incremental builds only, holding the chromium lock (`scripts/agent/locked chromium`,
   `docs/cef-source-build.md`). When freeing disk space, stay out of `~/chromium-build`.
 - **`/Applications/Netnyahoo.app` is the owner's daily browser.** Never launch it, quit it or kill it. The owner
-  runs local builds of this fork there: when they ask, install a Developer ID-signed Release build in its place,
-  only after they've quit it themselves, and keep the previous copy as `/Applications/Netnyahoo-<version>.app.bak`.
+  runs local builds of this fork there: when they ask, install a Release build signed with their local certificate in its place,
+  only after they've quit it themselves, with `scripts/install-local.sh` (it keeps the previous copy as a `.app.bak`).
 - **Never steal focus.** Run builds only as hidden instances:
   `open -g -n --env NETNYAHOO_BACKGROUND=1 --env NETNYAHOO_DATA_DIR=<throwaway dir> --env NETNYAHOO_REMOTE_DEBUGGING_PORT=<port> <app>`.
   Never use plain `open`. Background mode logs context menus and file panels instead of showing them.

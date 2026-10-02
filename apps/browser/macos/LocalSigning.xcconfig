@@ -1,0 +1,8 @@
+// A fork's local builds, signed with a self-signed code-signing certificate from the login keychain
+// (scripts/install-local.sh). Like AdHoc.xcconfig (no provisioning profile, no restricted entitlements), but with a
+// stable signing identity, so the Safe Storage keychain item can trust it once and the installed profile's cookies
+// and passwords stay readable across builds (IsCertificateSigned in NNCoreHost.mm).
+#include "AdHoc.xcconfig"
+
+NN_SIGNING_IDENTITY = Netnyahoo Local
+CODE_SIGN_IDENTITY = $(NN_SIGNING_IDENTITY)

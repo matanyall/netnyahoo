@@ -275,11 +275,11 @@ public class SyncModule: Module {
   }
 
   static func safeStorageSecret() throws -> Data {
-    if dataDirectory != nil || !isTeamSigned { return Data("mock_password".utf8) }
+    if dataDirectory != nil || !isCertificateSigned { return Data("mock_password".utf8) }
     return try SafeStorageKeychain.secret(service: "Netnyahoo Safe Storage", account: "Netnyahoo")
   }
 
-  static let isTeamSigned: Bool = {
+  static let isCertificateSigned: Bool = {
     var code: SecCode?
     guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return false }
     var staticCode: SecStaticCode?
@@ -287,7 +287,7 @@ public class SyncModule: Module {
     var info: CFDictionary?
     guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
           let dict = info as? [String: Any] else { return false }
-    return dict[kSecCodeInfoTeamIdentifier as String] != nil
+    return dict[kSecCodeInfoCertificates as String] != nil
   }()
 }
 

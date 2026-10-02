@@ -62,18 +62,19 @@ NSString *InstalledDataDirectory() {
   return [[support stringByAppendingPathComponent:bundleId] stringByAppendingPathComponent:@"Chromium"];
 }
 
-// Signed by a team (a Developer ID release): only those use the login keychain, as the CEF releases did. The Safe
-// Storage item trusts the signed app, so an ad hoc build reading it would make macOS ask for the password.
-bool IsTeamSigned() {
+// Signed with a certificate (a Developer ID release, or a fork's local signing certificate): only those use the
+// login keychain, as the CEF releases did. The Safe Storage item trusts a signing identity; an ad hoc build has none
+// (its hash changes every build), so reading it would make macOS ask for the password each time.
+bool IsCertificateSigned() {
   SecCodeRef code = nullptr;
   if (SecCodeCopySelf(kSecCSDefaultFlags, &code) != errSecSuccess) return false;
   CFDictionaryRef info = nullptr;
   OSStatus status = SecCodeCopySigningInformation((SecStaticCodeRef)code, kSecCSSigningInformation, &info);
   CFRelease(code);
   if (status != errSecSuccess || !info) return false;
-  bool team = CFDictionaryGetValue(info, kSecCodeInfoTeamIdentifier) != nullptr;
+  bool signedWithCertificate = CFDictionaryGetValue(info, kSecCodeInfoCertificates) != nullptr;
   CFRelease(info);
-  return team;
+  return signedWithCertificate;
 }
 
 }  // namespace
@@ -332,7 +333,7 @@ NSMutableDictionary<NSString *, NSDictionary *> *gInstallPrompts = [NSMutableDic
   // Test instances (a scratch data dir) and ad hoc builds keep off the login keychain, as the CEF releases did. Never
   // anything else: the installed data's cookies and passwords are encrypted with the real key, and Chrome drops what
   // it can't decrypt. (The release's carryover check runs the installed-data path on ad hoc copies.)
-  if (gScratchDataDir || !IsTeamSigned()) extra.push_back("--use-mock-keychain");
+  if (gScratchDataDir || !IsCertificateSigned()) extra.push_back("--use-mock-keychain");
   nncore_host::PrepareStartup(gDataDirectory, extra);
   // A background (test) instance shares the screen with the owner's windows: when one of theirs covers it, Chrome
   // marks its pages hidden (WebContentsOcclusionCheckerMac / macOS occlusion) and drops their input, so a run's

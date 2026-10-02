@@ -43,6 +43,20 @@ codesign --verify --deep --strict "$stage"
 signature=$(codesign -dvv "$stage" 2>&1)
 grep -qx "Authority=$identity" <<<"$signature" || die "the staged app isn't signed by \"$identity\""
 
+echo "==> Launch test (hidden, throwaway profile)"
+# A build whose helpers can't start (0.2.22's first local install: library validation) quits within seconds; never
+# swap that in for a working app.
+scratch=$(mktemp -d)
+reports=~/Library/Logs/DiagnosticReports
+marker="$scratch/.start"; : >"$marker"
+open -g -n --env NETNYAHOO_BACKGROUND=1 --env NETNYAHOO_DATA_DIR="$scratch/data" "$stage"
+sleep 20
+pid=$(pgrep -f "^$stage/Contents/MacOS/Netnyahoo" | head -1 || true)
+crashes=$(find "$reports" -newer "$marker" \( -name 'Netnyahoo*.ips' -o -name 'Chromium Helper*.ips' \) 2>/dev/null | wc -l | tr -d ' ')
+[ -n "$pid" ] && kill "$pid" 2>/dev/null && sleep 2
+[ -n "$pid" ] && [ "$crashes" = 0 ] || die "the new build didn't survive its launch test ($crashes crash reports; app ${pid:-gone}); nothing installed"
+rm -rf "$scratch"
+
 if pgrep -f "^$dest/Contents/MacOS/Netnyahoo" >/dev/null; then
   die "Netnyahoo is running: quit it (⌘Q), then run: scripts/install-local.sh --install-only"
 fi

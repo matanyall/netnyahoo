@@ -14,8 +14,13 @@ mkdir -p "$DERIVED_FILE_DIR"
 # library validation rejects an ad-hoc framework in a team-signed app. A release re-signs it with Developer ID.
 identity="${EXPANDED_CODE_SIGN_IDENTITY:--}"
 [ -z "$identity" ] && identity="-"
+# The hardened runtime's library validation wants the helpers and the framework signed by one team: a build signed
+# without a team (a fork's self-signed certificate, LocalSigning.xcconfig, which turns the runtime off) signs the
+# helpers without it, or every helper aborts at launch unable to load the framework.
+runtime=()
+[ "${ENABLE_HARDENED_RUNTIME:-NO}" = YES ] && runtime=(--options runtime)
 # Signing this script or its entitlements differently re-signs too.
-want="$(cat "$staged/../.stamp") $identity $(cat "$0" "$here"/signing/*.entitlements | shasum -a 256 | cut -c1-16)"
+want="$(cat "$staged/../.stamp") $identity ${ENABLE_HARDENED_RUNTIME:-NO} $(cat "$0" "$here"/signing/*.entitlements | shasum -a 256 | cut -c1-16)"
 if ! [[ -f "$stamp" && "$(cat "$stamp")" == "$want" && -d "$frameworks/Chromium Framework.framework" ]]; then
   rm -rf "$frameworks/Chromium Framework.framework"
   cp -cR "$staged" "$frameworks/"
@@ -25,13 +30,13 @@ if ! [[ -f "$stamp" && "$(cat "$stamp")" == "$want" && -d "$frameworks/Chromium 
     for lib in "$fwv"/Libraries/*.dylib; do sign "$lib"; done
     for helper in "$fwv"/Helpers/*.app; do
       case "$(basename "$helper")" in
-        *"Renderer).app") sign --options runtime --entitlements "$here/signing/renderer.entitlements" "$helper" ;;
-        *"GPU).app") sign --options runtime --entitlements "$here/signing/gpu.entitlements" "$helper" ;;
-        *) sign --options runtime "$helper" ;;
+        *"Renderer).app") sign ${runtime[@]+"${runtime[@]}"} --entitlements "$here/signing/renderer.entitlements" "$helper" ;;
+        *"GPU).app") sign ${runtime[@]+"${runtime[@]}"} --entitlements "$here/signing/gpu.entitlements" "$helper" ;;
+        *) sign ${runtime[@]+"${runtime[@]}"} "$helper" ;;
       esac
     done
     for tool in chrome_crashpad_handler app_mode_loader web_app_shortcut_copier; do
-      [ -e "$fwv/Helpers/$tool" ] && sign --options runtime "$fwv/Helpers/$tool"
+      [ -e "$fwv/Helpers/$tool" ] && sign ${runtime[@]+"${runtime[@]}"} "$fwv/Helpers/$tool"
     done
     sign "$frameworks/Chromium Framework.framework"
   fi

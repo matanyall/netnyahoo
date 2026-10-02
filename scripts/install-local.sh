@@ -40,7 +40,8 @@ ditto "$built" "$stage"
 /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$stage/Contents/Info.plist" 2>/dev/null || true
 codesign --force --sign "$identity" "$stage"
 codesign --verify --deep --strict "$stage"
-codesign -dvv "$stage" 2>&1 | grep -q "Authority=$identity" || die "the staged app isn't signed by \"$identity\""
+signature=$(codesign -dvv "$stage" 2>&1)
+grep -qx "Authority=$identity" <<<"$signature" || die "the staged app isn't signed by \"$identity\""
 
 if pgrep -f "^$dest/Contents/MacOS/Netnyahoo" >/dev/null; then
   die "Netnyahoo is running: quit it (⌘Q), then run: scripts/install-local.sh --install-only"

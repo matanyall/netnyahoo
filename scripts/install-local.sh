@@ -35,7 +35,7 @@ fi
 [ -d "$built" ] || die "no build at $built"
 
 echo "==> Stage"
-stage=$(mktemp -d)/Netnyahoo.app
+stage=$(cd "$(mktemp -d)" && pwd -P)/Netnyahoo.app # /private/var/…, the path ps shows (the launch test's pgrep)
 ditto "$built" "$stage"
 /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$stage/Contents/Info.plist" 2>/dev/null || true
 codesign --force --sign "$identity" "$stage"

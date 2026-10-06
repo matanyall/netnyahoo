@@ -376,6 +376,7 @@ function LiveItemRow({ folderId, item, windowId, indent = 0 }: { folderId: strin
                   color={active ? theme.tabSelectedText : completion ? theme.textSecondary : theme.textTab}
                   style={{ flex: 1, height: 18, marginLeft: 5 }}
                 />
+                {item.pr ? <PrNumber number={item.pr.number} active={active} /> : null}
                 {item.pr?.stack ? <PositionChip position={item.pr.stack.position} /> : null}
                 {hovered && tabId && !completion ? (
                   <IconButton icon="xmark" size={10} weight="semibold" box={22} radius={6} onPress={() => void closeTab(tabId)} tooltip="Close Tab (⌘W)" />
@@ -388,6 +389,16 @@ function LiveItemRow({ folderId, item, windowId, indent = 0 }: { folderId: strin
         </ContextMenuArea>
       </View>
     </Animated.View>
+  );
+}
+
+// The PR's number, the way people refer to PRs: small and dim beside the title, so the numbers line up on the right.
+function PrNumber({ number, active }: { number: number; active: boolean }) {
+  const theme = useTheme();
+  return (
+    <Text numberOfLines={1} style={{ marginLeft: 4, fontSize: 11, color: active ? theme.tabSelectedText : theme.textSecondary, opacity: active ? 0.6 : 1, fontVariant: ["tabular-nums"] }}>
+      #{number}
+    </Text>
   );
 }
 

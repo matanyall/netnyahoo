@@ -34,6 +34,10 @@ export function startDevHarness() {
     pageState: usePages,
     openSettings,
     favicons,
+    // Live folders: connect a source (NETNYAHOO_LIVE_MOCK's tokens), make and refresh folders.
+    get live(): { sources: typeof import("../live/sources"); engine: typeof import("../live/engine"); store: typeof import("../live/store") } {
+      return { sources: require("../live/sources"), engine: require("../live/engine"), store: require("../live/store") };
+    },
     get checkIn(): typeof import("./defaultBrowserCheckIn") {
       return require("./defaultBrowserCheckIn");
     },

@@ -1,11 +1,11 @@
 # Testing
 
-`pnpm test` at the root runs every unit test (126 cases). Turbo caches the results; a cold run spends most
+`pnpm test` at the root runs every unit test (155 cases). Turbo caches the results; a cold run spends most
 of its time in `swift test`'s first build. Each package also runs its own:
 
 | Package | Command | Cases |
 | --- | --- | --- |
-| `apps/browser` | `pnpm --filter @netnyahoo/browser test` | 72 |
+| `apps/browser` | `pnpm --filter @netnyahoo/browser test` | 101 |
 | `packages/core` | `pnpm --filter @netnyahoo/core test` | 14 |
 | `packages/sync` | `pnpm --filter @netnyahoo/sync test` (`swift test`, then `node --test`) | 5 + 8 |
 | `packages/import` | `pnpm --filter @netnyahoo/import test` (`swift test`) | 26 |
@@ -98,9 +98,10 @@ lose or leak data, or when the bug is invisible by eye and has shipped before.
 | --- | --- | --- |
 | `apps/browser/src/store/privacy.test.mjs` | Private windows and incognito: nothing in `session.json`, `downloads.json` or favicon files, no history, no closed-tab records, no dragging tabs across; history time-range clearing; profile deletion queues Chrome's data and keeps shared data | Privacy and data loss. 0.2.11 shipped private tabs saved to disk and a deleted profile's data left behind |
 | `apps/browser/src/store/session.test.mjs` | v1 → v2 migration; `hydrate` repairing a damaged session; reopened windows keeping back/forward (0.2.12); shared profile data across a reload; `history.json`'s hand-written serializer; pinned tabs unloading on ⌘W, parking with a closed window, coming back once, surviving a relaunch (0.2.2, 0.2.8) | Session and history persistence |
+| `apps/browser/src/store/pins.test.mjs` | Pinned tabs shared by every window of a profile: ⌘N gets copies; pin, unpin, order, titles, pinned URL and pinned groups mirrored; a page shown in another window never closed by an unpin; closing one of two windows parks nothing, the last parks once; moving, dragging, merging and extensions' moves never doubling or dropping a pin; ⇧⌘T never losing a page; old sessions loading with one pin per page | Pins lost or doubled across windows (owner's report, 2026-10-06) |
 | `apps/browser/src/store/tabs.test.mjs` | Opener placement and close → activate rules; group contiguity; broken splits dropped; clean-up and abandoned New Tab cleanup never closing a window or the shown tab; Chrome's echo of the app's own tab switch; an extension's default search engine; the mini player staying closed (0.2.12) | Core behaviour that's hard to see by eye |
 | `apps/browser/src/components/omnibox/inline.test.mjs` | Every interleaving of typing and inline completion; stale completions never applied | 0.1.6: fast typing dropped or reordered letters |
-| `apps/browser/src/sync/adapters.test.mjs`, `engine.test.mjs` | Bookmark delete-vs-add and move cycles, parked pinned tabs, passwords (newest wins); a crash right after a batch lands; nothing published before its journal is on disk | Sync data loss (0.2.11) |
+| `apps/browser/src/sync/adapters.test.mjs`, `engine.test.mjs` | Bookmark delete-vs-add and move cycles, parked pinned tabs, one record per pin however many windows hold it, a remote unpin keeping open pages, passwords (newest wins); a crash right after a batch lands; nothing published before its journal is on disk | Sync data loss (0.2.11) |
 | `apps/browser/src/telemetry/sanitize.test.mjs` | URLs, hosts, paths, user names, quoted text, emails, dev hosts and NSException reasons never leave the Mac | Privacy: telemetry must never carry what the user browsed |
 | `packages/core/src/url.test.ts` | Typed text → URL (`resolveInput`, `fixupUrl`); IDN homograph spoofing stays punycode; tracking parameters stripped without touching the rest; `netnyahoo://` shown, never `chrome://` | URL parsing and security |
 | `packages/core/src/suggest.test.ts` | Inline completion never fills a long sign-in URL; free text never autocompletes; open tabs switchable; frecency ranking; a newer fetch aborts the older one | Omnibox ranking |

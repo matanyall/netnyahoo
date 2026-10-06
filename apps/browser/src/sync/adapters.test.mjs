@@ -151,7 +151,8 @@ test("pinned tabs parked by a closed window still sync: not deleted elsewhere, a
     const mail = model.viewTabIds(S(), aHome)[0];
     const cal = S().newTab(aHome, { url: "https://cal.example/" });
     S().pinTabs([mail, cal], true);
-    aWork = S().createWindow({ url: "https://work.example/" });
+    // A window of another profile: the default profile's pins park when aHome closes.
+    aWork = S().createWindow({ url: "https://work.example/", profileId: S().createProfile({ name: "Work" }) });
   });
   b.with(() => S().createWindow({ url: "https://b-home.example/" }));
   await syncAll([a, b]);
@@ -177,6 +178,112 @@ test("pinned tabs parked by a closed window still sync: not deleted elsewhere, a
   const n = a.with(() => S().createWindow());
   assert.deepEqual(a.with(() => model.viewTabIds(S(), n).filter((id) => S().tabs[id].pinned).map((id) => S().tabs[id].customTitle)), ["Inbox"]);
   assert.equal((await a.sync()).published, 0, "adopting them publishes nothing new");
+});
+
+test("pinned tabs: every window's copy of a pin is one record; a remote change reaches every copy", async () => {
+  const folder = new Folder();
+  const a = new Device("devA", folder);
+  const b = new Device("devB", folder);
+  let w1, w2;
+  a.with(() => {
+    w1 = S().createWindow({ url: "https://mail.example/" });
+    const mail = model.viewTabIds(S(), w1)[0];
+    const docs = S().newTab(w1, { url: "https://docs.example/" });
+    S().pinTabs([mail], true);
+    S().groupTabs([docs], { pinned: true, name: "Work" });
+    w2 = S().createWindow();
+  });
+  b.with(() => S().createWindow({ url: "https://b-home.example/" }));
+  const sidebar = (d, w) => d.with(() => model.viewTabIds(S(), w).filter((id) => model.inPinnedContainer(S(), id)).map((id) => S().tabs[id].customTitle ?? S().tabs[id].url));
+  assert.deepEqual(sidebar(a, w2), ["https://mail.example/", "https://docs.example/"], "⌘N has the pins");
+  await syncAll([a, b]);
+  const bPins = b.with(() => Object.values(S().tabs).filter((t) => model.inPinnedContainer(S(), t.id)).map((t) => t.url).sort());
+  assert.deepEqual(bPins, ["https://docs.example/", "https://mail.example/"], "two pins, not one per window");
+  assert.equal(b.with(() => Object.values(S().groups).filter((g) => g.pinned).length), 1, "one pinned group");
+
+  b.with(() => {
+    const mail = Object.values(S().tabs).find((t) => t.pinnedUrl === "https://mail.example/");
+    S().updateTab(mail.id, { customTitle: "Inbox" });
+  });
+  await syncAll([b, a]);
+  assert.deepEqual(sidebar(a, w1), ["Inbox", "https://docs.example/"]);
+  assert.deepEqual(sidebar(a, w2), ["Inbox", "https://docs.example/"], "the other window's copy too");
+  assert.equal((await a.sync()).published, 0, "settled");
+});
+
+test("pinned groups: a group's tab left at a page on one Mac (⌘W keeps its page) reaches the other's unloaded copy; sync settles", async () => {
+  const folder = new Folder();
+  const a = new Device("devA", folder);
+  const b = new Device("devB", folder);
+  let w1, w2;
+  a.with(() => {
+    w1 = S().createWindow({ url: "https://keep.example/" });
+    const doc = S().newTab(w1, { url: "https://original.example/" });
+    S().groupTabs([doc], { pinned: true, name: "Work" });
+    w2 = S().createWindow();
+  });
+  b.with(() => S().createWindow({ url: "https://b-home.example/" }));
+  await syncAll([a, b]);
+  b.with(() => {
+    const doc = Object.values(S().tabs).find((t) => t.url === "https://original.example/");
+    S().activate(doc.id);
+    S().navigated(doc.id, { url: "https://remote.example/", title: "Remote" }, {});
+    S().closeTab(doc.id);
+  });
+  await syncAll([b, a, b, a]);
+  const copyIn = (w) => a.with(() => model.viewTabIds(S(), w).map((id) => S().tabs[id]).find((t) => t.pinKey && !t.pinned));
+  assert.equal(copyIn(w2).url, "https://remote.example/", "the focused window's unloaded copy took it");
+  assert.equal(copyIn(w1).url, "https://original.example/", "the page open in the other window stays");
+  assert.equal((await a.sync()).published, 0, "A settled");
+  assert.equal((await b.sync()).published, 0, "B settled");
+  a.with(() => S().setFocusedWindow(w1));
+  assert.equal((await a.sync()).published, 0, "focusing the window with the older page publishes nothing");
+});
+
+test("pinned groups: two Macs showing different pages in a group's tab settle instead of trading them", async () => {
+  const folder = new Folder();
+  const a = new Device("devA", folder);
+  const b = new Device("devB", folder);
+  a.with(() => {
+    const w = S().createWindow({ url: "https://keep.example/" });
+    const doc = S().newTab(w, { url: "https://u.example/" });
+    S().groupTabs([doc], { pinned: true, name: "Work" });
+    // Both of A's windows show the group's tab.
+    const w2 = S().createWindow();
+    S().activate(model.viewTabIds(S(), w2).find((id) => S().tabs[id].pinKey && !S().tabs[id].pinned));
+  });
+  b.with(() => S().createWindow({ url: "https://b-home.example/" }));
+  await syncAll([a, b]);
+  b.with(() => {
+    const doc = Object.values(S().tabs).find((t) => t.url === "https://u.example/");
+    S().activate(doc.id);
+    S().navigated(doc.id, { url: "https://v.example/", title: "V" }, {});
+  });
+  await syncAll([a, b, a, b]);
+  let published = 0;
+  for (let i = 0; i < 6; i++) published += (await a.sync()).published + (await b.sync()).published;
+  assert.equal(published, 0, "settled: nothing more is published");
+  const page = (d) => d.with(() => Object.values(S().tabs).find((t) => t.pinKey && !t.pinned).url);
+  assert.deepEqual(a.with(() => Object.values(S().tabs).filter((t) => t.pinKey && !t.pinned).map((t) => t.url)), ["https://u.example/", "https://u.example/"], "each Mac keeps the pages it shows");
+  assert.equal(page(b), "https://v.example/");
+});
+
+test("pinned tabs unpinned on another Mac: a copy showing a page stays as a tab", async () => {
+  const folder = new Folder();
+  const a = new Device("devA", folder);
+  const b = new Device("devB", folder);
+  let w;
+  a.with(() => {
+    w = S().createWindow({ url: "https://mail.example/" });
+    S().pinTabs([model.viewTabIds(S(), w)[0]], true);
+    S().newTab(w, { url: "https://other.example/" });
+  });
+  b.with(() => S().createWindow({ url: "https://b-home.example/" }));
+  await syncAll([a, b]);
+  b.with(() => S().pinTabs([Object.values(S().tabs).find((t) => t.pinned).id], false));
+  await syncAll([b, a]);
+  const urls = a.with(() => model.viewTabIds(S(), w).map((id) => `${S().tabs[id].url}${S().tabs[id].pinned ? " (pinned)" : ""}`));
+  assert.deepEqual(urls, ["https://mail.example/", "https://other.example/"], "unpinned, still open");
 });
 
 test("passwords: saved on one Mac, changed or deleted on another; the newer edit of a login wins", async () => {

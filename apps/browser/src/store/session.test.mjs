@@ -175,8 +175,8 @@ test("history is a view of Chrome's: visits, deletions and a relaunch all read b
   stop();
 });
 
-// Pinned tabs (0.2.2): ⌘W unloads a pinned tab instead of closing it, and a closed window parks its pins for the
-// profile's next window.
+// Pinned tabs (0.2.2): ⌘W unloads a pinned tab instead of closing it, and the profile's last window parks its pins
+// for the profile's next window. Pins are the profile's in every window (store/pinMirror.ts, pins.test.mjs).
 
 test("⌘W on a pinned tab unloads its page; the tile stays with its title, icon and pinned URL", () => {
   reset();
@@ -248,10 +248,11 @@ test("⌘W until the window closes, then ⌘N: the pinned tabs and pinned groups
   assert.equal(S().groups[work].pinned, true);
   assert.deepEqual(S().parkedPins, {}, "the park is empty");
   const n2 = S().createWindow();
-  assert.deepEqual(sidebar(n2), []);
+  assert.deepEqual(sidebar(n2), PINS, "pins are the profile's: ⌘N with a window open has them too, its own copies");
+  assert.deepEqual(sidebar(n), PINS, "and the first window still has one set");
 });
 
-test("⇧⌘T after the close, then ⌘N: no second set of pinned tabs", () => {
+test("⇧⌘T after the close, then ⌘N: one set of pinned tabs in each window", () => {
   reset();
   const { w } = pinnedWindow();
   S().closeWindow(w);
@@ -261,8 +262,11 @@ test("⇧⌘T after the close, then ⌘N: no second set of pinned tabs", () => {
   assert.deepEqual(sidebar(restored), PINS, "the reopened window has them");
   assert.deepEqual(model.viewTabIds(S(), restored).filter((id) => !model.inPinnedContainer(S(), id)).map((id) => S().tabs[id].url), ["https://a.com"]);
   const n = S().createWindow();
-  assert.deepEqual(sidebar(n), [], "⌘N: none again");
-  assert.equal(Object.values(S().tabs).filter((t) => t.url === "https://mail.com").length, 1);
+  assert.deepEqual(sidebar(n), PINS, "⌘N: the same pins");
+  assert.deepEqual(sidebar(restored), PINS, "the reopened window's aren't doubled");
+  const mails = Object.values(S().tabs).filter((t) => t.url === "https://mail.com");
+  assert.deepEqual(mails.map((t) => t.windowId).sort(), [n, restored].sort(), "one copy per window");
+  assert.equal(new Set(mails.map((t) => t.pinKey)).size, 1, "copies of one pin");
 });
 
 test("quit and relaunch after the window closed: the next window has the pinned tabs, unloaded", () => {

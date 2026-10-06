@@ -2,6 +2,7 @@ import type { StateCreator } from "zustand";
 import type { BrowserState } from "./browser";
 import {
   findLast,
+  groupKeyOf,
   IDLE_LIVE,
   incognitoProfileId,
   inPinnedContainer,
@@ -9,14 +10,17 @@ import {
   makeTab,
   navigationTo,
   newId,
+  pinKeyOf,
   pinnedFirst,
   resolveWindowId,
   snapshotTab,
   viewTabIds,
   without,
 } from "./model";
-import { restoringGroup } from "./organize";
+import { orderSections, placeBlock, syncGroupOrder } from "./groups";
+import { restoringGroup, samePage } from "./organize";
 import { adoptParkedPins, parkWindowPins } from "./parkedPins";
+import { fillPins, mirrorsPins, profilesShownElsewhere, settleMovedPins } from "./pinMirror";
 import { isSmall, isSmallWindow, mainWindowFor, smallYahuProfile } from "./small";
 import { activated, apply, removeTabs, withNewTab } from "./tabs";
 import type { BrowserWindow, ClosedTab, ClosedWindow, Frame, ParkedPins, Tab, TabGroup } from "./types";
@@ -74,13 +78,19 @@ function withWindow(s: BrowserState, w: BrowserWindow): BrowserState {
   };
 }
 
-export function moveTabsInto(s: BrowserState, ids: string[], targetId: string): BrowserState {
+// Pins are the profile's (store/pinMirror.ts): the target gets the profile's pins before a pin moves in, and the
+// moved tab takes its copy's place there instead of making a second pin. Of the two, the one showing a page keeps
+// the place (both showing one: the moved tab, or in a merge the target's); the other becomes a regular tab, or goes
+// if it shows nothing. A moved pin's own window keeps an unloaded copy, unless it's merging away.
+export function moveTabsInto(s: BrowserState, ids: string[], targetId: string, o: { merge?: boolean } = {}): BrowserState {
   const target = s.windows[targetId];
   if (!target || isSmallWindow(target)) return s;
-  const moving = ids
-    .map((id) => s.tabs[id])
-    .filter((t): t is Tab => !!t && t.windowId !== targetId && !isIncognitoProfile(t.profileId) && !target.incognito);
+  const movable = (t: Tab | undefined): t is Tab => !!t && t.windowId !== targetId && !isIncognitoProfile(t.profileId) && !target.incognito;
+  const pins = ids.map((id) => s.tabs[id]).filter(movable).filter((t) => inPinnedContainer(s, t.id) && mirrorsPins(s.windows[t.windowId]));
+  for (const t of pins) s = fillPins(s, targetId, t.profileId, t.windowId);
+  const moving = ids.map((id) => s.tabs[id]).filter(movable);
   if (!moving.length) return s;
+  const pinKeys = new Map(pins.map((t) => [t.id, pinKeyOf(s.tabs[t.id]!)]));
 
   const sources = new Set(moving.map((t) => t.windowId));
   let next = removeTabs(s, moving.map((t) => t.id), false);
@@ -100,6 +110,8 @@ export function moveTabsInto(s: BrowserState, ids: string[], targetId: string): 
     live,
     windows: { ...next.windows, [targetId]: { ...w, tabIds: pinnedFirst([...w.tabIds, ...moving.map((t) => t.id)], tabs), activeTabIds } },
   };
+  if (pins.length) next = settleMovedPins(next, targetId, pinKeys, !!o.merge);
+  if (!o.merge) for (const t of pins) if (next.windows[t.windowId]) next = fillPins(next, t.windowId, t.profileId, targetId);
   for (const id of sources) {
     const src = next.windows[id];
     if (!src || viewTabIds(next, id).length) continue;
@@ -177,7 +189,7 @@ export const createWindowsSlice: StateCreator<BrowserState, [], [], WindowsSlice
       windowOrder: next.windowOrder.filter((w) => w !== id),
       windowUi: without(next.windowUi, [id]),
       closedWindows,
-      parkedPins: small ? s.parkedPins : parkWindowPins(s.parkedPins, w, s),
+      parkedPins: small ? s.parkedPins : parkWindowPins(s.parkedPins, w, s, profilesShownElsewhere(next, id)),
       closedTabs: w.incognito ? next.closedTabs.filter((c) => c.windowId !== id) : next.closedTabs,
       ui: {
         ...next.ui,
@@ -265,10 +277,20 @@ export const createWindowsSlice: StateCreator<BrowserState, [], [], WindowsSlice
     const others = s.windowOrder.filter((id) => id !== target && !s.windows[id]?.incognito && !isSmallWindow(s.windows[id]));
     const tabIds = others.flatMap((id) => s.windows[id]!.tabIds);
     if (!tabIds.length) return;
-    let next = moveTabsInto(s, tabIds, target);
-    const groups = { ...s.groups };
-    for (const g of Object.values(s.groups)) if (others.includes(g.windowId)) groups[g.id] = { ...g, windowId: target };
-    next = { ...next, groups };
+    let next = moveTabsInto(s, tabIds, target, { merge: true });
+    // Groups come along; a pinned group the target has a copy of already doesn't come twice.
+    const held = new Set(Object.values(next.groups).filter((g) => g.windowId === target && g.pinned).map((g) => `${g.profileId}\n${groupKeyOf(g)}`));
+    const groups = { ...next.groups };
+    for (const g of Object.values(s.groups)) {
+      if (!others.includes(g.windowId) || (g.pinned && held.has(`${g.profileId}\n${groupKeyOf(g)}`))) continue;
+      const members = g.tabIds.filter((id) => next.tabs[id]?.windowId === target);
+      if (members.length) groups[g.id] = { ...g, windowId: target, tabIds: members };
+    }
+    const w = next.windows[target]!;
+    let ids = orderSections(pinnedFirst(w.tabIds, next.tabs), next.tabs, groups);
+    for (const g of Object.values(groups)) if (g.windowId === target) ids = placeBlock(ids, ids.filter((id) => g.tabIds.includes(id)));
+    const window = { ...w, tabIds: ids };
+    next = { ...next, groups: syncGroupOrder(groups, window), windows: { ...next.windows, [target]: window } };
     set(next);
   },
 
@@ -315,9 +337,21 @@ function canRestoreTabInto(s: BrowserState, c: ClosedTab, windowId: string | und
   return !w?.incognito;
 }
 
+// The pinned tile a closed page goes back into: the tile itself, else its pin's copy in the window asked for (the
+// tile's window closed while others showed the profile), else in any window showing the profile.
+function pinnedTileFor(s: BrowserState, entry: ClosedTab, requested?: string | null): Tab | undefined {
+  if (!entry.pinnedTile || !entry.tabId) return undefined;
+  if (s.tabs[entry.tabId]) return s.tabs[entry.tabId];
+  const key = entry.pinKey ?? entry.tabId;
+  const target = resolveWindowId(s, requested);
+  const copies = Object.values(s.tabs).filter((t) => t.pinKey === key && t.profileId === entry.tab.profileId && mirrorsPins(s.windows[t.windowId]));
+  return copies.find((t) => t.windowId === target) ?? copies[0];
+}
+
 function restoreTab(s: BrowserState, entry: ClosedTab, requested?: string | null): BrowserState {
   const owner = entry.tab.profileId;
-  if (entry.pinnedTile && entry.tabId && !s.tabs[entry.tabId] && s.parkedPins[owner]?.tabs.some((p) => p.id === entry.tabId)) {
+  const key = entry.pinKey ?? entry.tabId;
+  if (entry.pinnedTile && entry.tabId && !pinnedTileFor(s, entry, requested) && s.parkedPins[owner]?.tabs.some((p) => p.id === entry.tabId || (p.pinKey ?? p.id) === key)) {
     const target = resolveWindowId(s, requested);
     let windowId = target && !s.windows[target]!.incognito && s.windows[target]!.profileId === owner ? target : undefined;
     let next = s;
@@ -326,7 +360,7 @@ function restoreTab(s: BrowserState, entry: ClosedTab, requested?: string | null
       next = withWindow(next, emptyWindow(windowId, owner, false));
     }
     next = adoptParkedPins(next, windowId, owner);
-    if (next.tabs[entry.tabId]) return restoreTab(next, entry, windowId);
+    if (pinnedTileFor(next, entry, windowId)) return restoreTab(next, entry, windowId);
   }
   const closedTabs = s.closedTabs.filter((c) => c.id !== entry.id);
   if (entry.small && !isIncognitoProfile(entry.tab.profileId)) {
@@ -340,11 +374,12 @@ function restoreTab(s: BrowserState, entry: ClosedTab, requested?: string | null
       adoptId: entry.tabId && entry.tab.url ? restoreId(entry.tabId) : undefined,
     })[0];
   }
-  const tile = entry.pinnedTile && entry.tabId ? s.tabs[entry.tabId] : undefined;
-  if (tile) {
+  const tile = pinnedTileFor(s, entry, requested);
+  // A copy showing another page keeps it: the closed page then reopens as a tab of its own.
+  if (tile && (!(tile.navigation || tile.adoptId) || samePage(tile.url, entry.tab.url))) {
     const unloaded = !tile.navigation && !tile.adoptId;
     const tabs = unloaded
-      ? { ...s.tabs, [tile.id]: { ...tile, url: entry.tab.url, title: entry.tab.title, favicon: entry.tab.favicon, muted: entry.tab.muted, adoptId: restoreId(tile.id) } }
+      ? { ...s.tabs, [tile.id]: { ...tile, url: entry.tab.url, title: entry.tab.title, favicon: entry.tab.favicon, muted: entry.tab.muted, adoptId: restoreId(entry.tabId!) } }
       : s.tabs;
     const next: BrowserState = { ...s, closedTabs, tabs };
     return apply(next, activated(next, tile.id));
@@ -362,7 +397,8 @@ function restoreTab(s: BrowserState, entry: ClosedTab, requested?: string | null
   const [withTab, tabId] = withNewTab(next, windowId, {
     url: entry.tab.url || undefined,
     profileId,
-    snapshot: entry.tab,
+    // A pinned tile's page whose pin is gone (or busy) comes back as a regular tab, not a new pin.
+    snapshot: entry.pinnedTile ? { ...entry.tab, pinned: false, pinnedUrl: null } : entry.tab,
     index: w.id === entry.windowId ? entry.index : undefined,
     adoptId: entry.tabId && entry.tab.url ? restoreId(entry.tabId) : undefined,
   });

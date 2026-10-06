@@ -47,6 +47,9 @@ export type Tab = {
   wakeAdoptId?: string;
   liveItem?: { folderId: string; itemId: string };
   unloaded?: boolean;
+  // Pinned tabs are the profile's (Arc's model): every window showing the profile holds a copy of each pin, its
+  // own Tab, and the copies share this key (store/pinMirror.ts). Set on every pinned tile and pinned group member.
+  pinKey?: string;
   createdAt: number;
   lastActiveAt: number;
 };
@@ -76,6 +79,8 @@ export type TabGroup = {
   autoUngroup?: boolean;
   // The pinned tab whose links, opened behind, this group collects (Dia: they gather below the pinned tabs).
   pinnedOpenerId?: string;
+  // A pinned group's copies in the profile's windows share this key, as pinned tabs share Tab.pinKey.
+  pinKey?: string;
 };
 
 export type SplitView = {
@@ -125,6 +130,8 @@ export type ClosedTab = {
   group: Pick<TabGroup, "id" | "name" | "icon" | "color"> | null;
   closedAt: number;
   pinnedTile?: boolean;
+  // The pin the tile was a copy of: ⇧⌘T restores the page into that pin's copy when the tile itself is gone.
+  pinKey?: string;
   small?: boolean;
 };
 
@@ -138,8 +145,8 @@ export type ClosedWindow = {
 };
 
 export type ParkedPins = {
-  tabs: (TabSnapshot & { id: string; groupId: string | null })[];
-  groups: Pick<TabGroup, "id" | "name" | "icon" | "color" | "collapsed">[];
+  tabs: (TabSnapshot & { id: string; groupId: string | null; pinKey?: string })[];
+  groups: Pick<TabGroup, "id" | "name" | "icon" | "color" | "collapsed" | "pinKey">[];
 };
 
 export type ClosedGroup = {

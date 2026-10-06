@@ -195,7 +195,18 @@ export function unloadPinnedTabs(s: BrowserState, ids: string[]): BrowserState {
     const w = s.windows[t.windowId];
     const loaded = !!(t.navigation || t.adoptId);
     if (loaded && t.url) {
-      closed.push({ kind: "tab", id: newId("ct"), tab: snapshotTab(t), tabId: id, windowId: t.windowId, index: w?.tabIds.indexOf(id) ?? 0, group: null, closedAt: now, pinnedTile: true });
+      closed.push({
+        kind: "tab",
+        id: newId("ct"),
+        tab: snapshotTab(t),
+        tabId: id,
+        windowId: t.windowId,
+        index: w?.tabIds.indexOf(id) ?? 0,
+        group: null,
+        closedAt: now,
+        pinnedTile: true,
+        ...(t.pinKey ? { pinKey: t.pinKey } : {}),
+      });
     }
     tabs[id] = { ...t, ...backToPin(s, t), navigation: null, adoptId: undefined, wakeAdoptId: undefined, unloaded: true };
     live[id] = IDLE_LIVE;

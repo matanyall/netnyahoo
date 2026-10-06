@@ -80,6 +80,10 @@ export function pinnedFirst(ids: string[], tabs: Record<string, Tab>): string[] 
   return [...ids.filter((id) => tabs[id]?.pinned), ...ids.filter((id) => !tabs[id]?.pinned)];
 }
 
+// The key all copies of one pin share (store/pinMirror.ts); a pin made before keys existed is keyed by its id.
+export const pinKeyOf = (t: Pick<Tab, "id" | "pinKey">) => t.pinKey ?? t.id;
+export const groupKeyOf = (g: { id: string; pinKey?: string }) => g.pinKey ?? g.id;
+
 export function inPinnedContainer(s: Pick<BrowserState, "tabs" | "groups">, id: string): boolean {
   const tab = s.tabs[id];
   if (!tab) return false;

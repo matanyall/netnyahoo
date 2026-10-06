@@ -4,6 +4,7 @@ import { createGroupsSlice, type GroupsSlice } from "./groups";
 import { createHistorySlice, type HistorySlice } from "./history";
 import { IDLE_LIVE, isIncognitoProfile, pinnedFirst } from "./model";
 import { createOrganizeSlice, forgetClosedPrivateWindows, keptDeletedGroups, type OrganizeSlice } from "./organize";
+import { mirrorPins, unifyPins } from "./pinMirror";
 import { createProfilesSlice, DEFAULT_PROFILE, engineIdOf, type ProfilesSlice } from "./profiles";
 import { createSettingsSlice, DEFAULT_SETTINGS, type SettingsSlice } from "./settings";
 import { createSplitsSlice, sanitizeSplits, type SplitsSlice } from "./splits";
@@ -65,7 +66,25 @@ const batched =
     return creator(batchedSet, get, api);
   };
 
-export const useBrowser = create<BrowserState>()(batched((...a) => ({
+// Every update passes store/pinMirror.ts: an edit to one window's pinned tabs reaches the profile's other windows in
+// the same update. A replaced state (a test swapping stores) is taken as it is.
+const mirrored =
+  (creator: StateCreator<BrowserState>): StateCreator<BrowserState> =>
+  (set, get, api) => {
+    type Patch = Partial<BrowserState> | BrowserState;
+    const mirroredSet = ((partial: Patch | ((s: BrowserState) => Patch), replace?: boolean) =>
+      (set as (p: (s: BrowserState) => Patch, r?: boolean) => void)((s) => {
+        const patch = typeof partial === "function" ? partial(s) : partial;
+        if (replace || !patch || !("tabs" in patch || "groups" in patch || "windows" in patch)) return patch;
+        const next = { ...s, ...patch };
+        const fixed = mirrorPins(s, next);
+        return fixed === next ? patch : fixed;
+      }, replace)) as typeof set;
+    api.setState = mirroredSet;
+    return creator(mirroredSet, get, api);
+  };
+
+export const useBrowser = create<BrowserState>()(batched(mirrored((...a) => ({
   ...createProfilesSlice(...a),
   ...createWindowsSlice(...a),
   ...createTabsSlice(...a),
@@ -153,10 +172,11 @@ export const useBrowser = create<BrowserState>()(batched((...a) => ({
       find: {},
       ui: { ...s.ui, focusedWindowId: focused, focusOrder: focused ? [focused, ...windowOrder.filter((id) => id !== focused).reverse()] : [] },
     };
-    for (const w of Object.values(windows)) next = apply(next, activated(next, w.activeTabIds[w.profileId]!));
+    next = unifyPins(next);
+    for (const w of Object.values(next.windows)) next = apply(next, activated(next, w.activeTabIds[w.profileId]!));
     set(next);
   },
-})));
+}))));
 
 useBrowser.subscribe((s, prev) => {
   const patch = s.windows !== prev.windows && forgetClosedPrivateWindows(s);

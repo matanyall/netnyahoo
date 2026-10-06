@@ -13,13 +13,39 @@ modules before using them — this is a summary from the agent that built it.
   once it has been read (lib/history.ts). `bookmarks`: `{ nodes, roots[profileId]: { bar, other } }`.
 - `closedTabs` / `closedWindows` (full state; a closed window's entry leaves out its pinned tabs and pinned groups);
   `downloads`; `settings` (typed, store/settings.ts).
-- `parkedPins[profileId]` (store/parkedPins.ts): pinned tabs belong to the profile's sidebar, as in Dia. Closing a
-  window (⌘W on its last tab, the close button, ⇧⌘W, "Start fresh" on launch) parks its pinned tiles (at their pinned
-  URL) and pinned groups, with their order and tab/group ids; the next window that shows the profile takes them back,
-  unloaded (`createWindow` — ⌘N, the Dock, a link from another app, the first window after a relaunch —,
+- Pinned tabs are the profile's, as in Arc (this fork differs from Dia here; store/pinMirror.ts): every window showing
+  a profile (its own profile, or one it holds a tab of) has the same pinned tiles and pinned groups, each window its
+  own Tab with its own page. Copies of one pin share `tab.pinKey`, a pinned group's copies `group.pinKey` (every pinned
+  tile, pinned group member and pinned group has one; a pin from before keys is keyed by its id, and a session saved
+  before them loads with each profile's windows given the union of their pins, one pin per pinned page).
+  - The store's `set` runs `mirrorPins` (a middleware in store/browser.ts, also for `useBrowser.setState`): an edit to
+    one window's pins (pin, unpin, order, custom title or icon, pinned URL, pinned groups' name, icon, colour, members,
+    delete, dragging in or out with `placeTabs`) is copied to the profile's other windows in the same update, and a
+    window that starts showing a profile (`createWindow`: ⌘N, the Dock, a link from another app; `switchProfile`;
+    Reopen Closed Window) gets unloaded copies (`unloaded: true`, at the pinned URL). A window that comes with pins of
+    its own (an adopted park) adds them. Of two edits in one update, the focused window's wins.
+  - Not mirrored: what each copy shows (navigating, ⌘W's unload, waking), and a group's collapsed state.
+  - A pin gone elsewhere (unpinned, its pinned group deleted or unpinned) leaves a window only if its copy there shows
+    nothing (unloaded); a copy showing a page stays as a regular tab (a deleted pinned group's pages as a regular group).
+  - Moving or dragging a pin to another window (`moveTabsInto`) never makes a second pin there: the target gets the
+    profile's pins first, the moved tab takes its copy's place (the copy goes, or stays as a regular tab if it showed a
+    page), and the window it left keeps an unloaded copy. Merge All Windows keeps the target's copies (a merged-in copy
+    showing a page, where the target's doesn't, takes its place); merged-in copies showing pages become regular tabs.
+  - ⇧⌘T of a pinned tile's page whose window has closed restores it into the pin's copy (`ClosedTab.pinKey`); if
+    that copy shows another page, or the pin is gone, the page reopens as a regular tab (never a second pin).
+  - A pin an extension moves to another window (`chrome.tabs.move`, liveTabs' `intoWindow`) is settled the same way
+    in the same update (pinMirror `settleMoves`), and a window new to the profile gets its pins first.
+  - Private windows and Small Yahu have no shared pins.
+- `parkedPins[profileId]` (store/parkedPins.ts): when the last window showing a profile closes (⌘W on its last tab, the
+  close button, ⇧⌘W, "Start fresh" on launch), its pinned tiles (at their pinned URL) and pinned groups park, with
+  their order, ids and keys; the next window that shows the profile takes them back, unloaded (`createWindow`,
   `switchProfile`, Reopen Closed Window, ⇧⌘T of a tile's page), and the park empties, so nothing comes back twice.
-  With several windows of a profile open, each keeps the pins it has; a closing one's pins go to the next new window.
-  Sync publishes parked pins as the profile's pins and applies changes to them in place (sync/adapters `pinnedAdapter`).
+  A window closing while another still shows the profile parks nothing: that window has them. Sync publishes one
+  record per pin key (open windows' copies and the park, deduplicated). A pin syncs the page its copies open at: an
+  unloaded copy's (the one still at the synced page first); while every copy shows a page, those pages are each
+  window's own and the synced page stays. It applies changes to one window showing the profile (the focused one),
+  which the store mirrors to the rest, or to the park when none does (sync/adapters `pinnedAdapter`). A pin unpinned
+  on another Mac leaves a copy showing a page as a regular tab.
 - UI: `ui.focusedWindowId`, `ui.appDark`, `windowUi[windowId]` (command panel, downloads popover), `find[tabId]`.
 
 ## Actions
@@ -189,7 +215,8 @@ ordered transaction that names its cause. There are no echo windows, timers or "
   store to synced records (bookmarks, history, open tabs, pinned tabs and pinned groups, settings, passwords).
   Adapters rebuild or patch store state with `useBrowser.setState`, so store invariants they touch (group contiguity,
   pinned-first order) are kept there.
-- Record keys use store ids (`bm:<id>`, `pin:t:<tab id>`), so ids must stay unique across Macs: `newId` has a random part.
+- Record keys use store ids (`bm:<id>`, `pin:t:<pin key>`, `pin:g:<group pin key>`; a pin key is its first tab's id),
+  so ids must stay unique across Macs: `newId` has a random part.
 - Tests: `src/sync/adapters.test.mjs` (two devices swap the one store; `docs/testing.md`).
   DEV: `nnSync` (`turnOnSync`, `enterRecoveryPhrase`, `syncNow`, `stopSync`, `useSync`, `menu`, `sheets`).
 

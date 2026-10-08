@@ -473,24 +473,22 @@ function CompletedFooter({ folderId, windowId }: { folderId: string; windowId: s
   const colors = useLiveColors();
   const completing = useLive((s) => s.completing[folderId] ?? NONE);
   const completed = useLive(useShallow((s) => (s.completed[folderId] ?? []).filter((c) => Date.now() - c.at < 24 * 3_600_000)));
+  // Opened by a click, not by hovering: opening on hover pushed the rows below around as the pointer passed.
   const [open, setOpen] = useState(false);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [hovered, setHovered] = useState(false);
   const shown = completed.filter((c) => !completing.includes(c.item.id));
   if (!shown.length) return null;
-  const enter = () => {
-    clearTimeout(hideTimer.current);
-    setOpen(true);
-  };
-  const leave = () => {
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setOpen(false), 250);
-  };
   return (
-    <View onMouseEnter={enter} onMouseLeave={leave} style={{ gap: layout.rowGap }}>
-      <View style={{ height: 24, flexDirection: "row", alignItems: "center", paddingLeft: 9, borderRadius: 8, backgroundColor: open ? theme.rowHover : undefined }}>
-        <Symbol name="checkmark.circle" size={11} color={theme.textSecondary} style={{ width: 16, height: 16 }} />
-        <Text style={{ marginLeft: 5, fontSize: 12, color: theme.textSecondary }}>{shown.length} Completed</Text>
-      </View>
+    <View style={{ gap: layout.rowGap }}>
+      <Pressable onPress={() => setOpen((o) => !o)} onHoverIn={() => setHovered(true)} onHoverOut={() => setHovered(false)}>
+        {({ pressed }) => (
+          <View style={{ height: 24, flexDirection: "row", alignItems: "center", paddingLeft: 9, paddingRight: 8, borderRadius: 8, backgroundColor: pressed ? theme.tabPressed : hovered ? theme.rowHover : undefined }}>
+            <Symbol name="checkmark.circle" size={11} color={theme.textSecondary} style={{ width: 16, height: 16 }} />
+            <Text style={{ flex: 1, marginLeft: 5, fontSize: 12, color: theme.textSecondary }}>{shown.length} Completed</Text>
+            <Symbol name={open ? "chevron.down" : "chevron.right"} size={9} weight="semibold" color={theme.textSecondary} style={{ width: 12, height: 12 }} />
+          </View>
+        )}
+      </Pressable>
       {open
         ? shown.slice(0, 8).map((c) => (
             <Pressable key={c.item.id} onPress={() => openLiveItem(windowId, folderId, c.item)}>
